@@ -39,6 +39,9 @@ http://qwen-image:8000
 
 (open-webui must share the Docker network `openwebui_default` — same as before.)
 
+For a screenshot-based setup guide and sample images showing how to parametrize
+generations (`width`/`height`, `steps`/`cfg`), see [examples/](examples/README.md).
+
 ## GPU memory strategy (lazy load + idle unload)
 
 The service does **not** hold its ~18 GB of weights permanently on the GPU:
