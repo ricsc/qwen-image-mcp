@@ -1,0 +1,10 @@
+# Runtime data / generated artifacts
+data/
+images/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+**/.DS_Store

@@ -1,0 +1,52 @@
+# Standalone Qwen-Image MCP sidecar (no z-image-studio dependency).
+#
+#   docker compose up -d          # pull from GHCR + start (first run: ~19 GB model download on first generation)
+#   curl http://127.0.0.1:8000/health
+#
+# open-webui (shared network openwebui_default):
+#   MCP server URL: http://qwen-image:8000  (…/mcp works too — both paths are mounted)
+services:
+  qwen-image:
+    # Built & pushed by GitHub Actions on every push to main (see .github/workflows/build-and-push.yml).
+    # To update after a new build:  docker compose pull && docker compose up -d
+    image: ghcr.io/ricsc/qwen-image-mcp:latest
+    container_name: qwen-image
+    # Port bound to localhost only (no LAN exposure); open-webui reaches the
+    # service by container name on the shared Docker network.
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - openwebui_default
+    environment:
+      # Muss aus Sicht des MCP-Clients (open-webui) erreichbar sein -> Containername
+      - IMAGE_BASE_URL=http://qwen-image:8000
+      - IMAGE_DIR=/srv/images-qwen
+      # HuggingFace-Modell-Cache persistent halten (sonst ~19 GB Download bei jedem Start)
+      - HF_HOME=/data/hf-cache
+      # Verhindert VRAM-Fragmentierung (von PyTorch empfohlen bei knapper Belegung)
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Lazy Load: Modell wird erst beim ersten generate_image geladen (~15-30 s),
+      # danach nach IDLE_UNLOAD_AFTER Sekunden Inaktivität wieder von der GPU entladen.
+      - IDLE_UNLOAD_AFTER=300
+    volumes:
+      - ./data:/data          # HF model cache (~19 GB after first download)
+      - ./images:/srv/images-qwen
+    healthcheck:
+      # Lazy Load: Service startet sofort (Modell erst bei Bedarf) -> /health liefert 200 (idle)
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+networks:
+  openwebui_default:
+    external: true

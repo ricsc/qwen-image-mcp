@@ -1,0 +1,54 @@
+# Build the qwen-image-mcp container and push it to GitHub Container Registry.
+#
+#   * Pushed automatically on every commit to `main` (and as `:latest`).
+#   * Every build also gets an immutable tag with the full commit SHA, so
+#     deployments can pin an exact version.
+#   * Docker layer cache (type=gha) makes rebuilds fast — the big torch wheel
+#     download is only repeated when requirements/Dockerfile actually change.
+#
+# No secrets needed: GITHUB_TOKEN gets `packages: write` via `permissions:`
+# below, and images pushed this way are private for a private repository.
+
+name: Build & Push to GHCR
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/qwen-image-mcp
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

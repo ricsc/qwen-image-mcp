@@ -1,0 +1,17 @@
+# Pinned to the exact version matrix that was verified with
+# Qwen-Image-2512 (bnb-4bit + Lightning LoRA) on this host.
+# torch itself is installed separately in the Dockerfile (cu130 wheel index).
+diffusers==0.41.0
+transformers==5.20.2
+accelerate==1.15.0
+huggingface_hub==1.33.0
+bitsandbytes==0.50.2
+peft==0.21.2
+safetensors==0.8.0
+tokenizers==0.23.3
+pillow==13.0.0
+
+# HTTP / MCP transport (mcp stays on 1.x: streamable-http app embedding)
+fastapi==0.159.1
+uvicorn[standard]==0.54.0
+mcp==1.30.0
