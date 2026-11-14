@@ -42,6 +42,26 @@ http://qwen-image:8000
 For a screenshot-based setup guide and sample images showing how to parametrize
 generations (`width`/`height`, `steps`/`cfg`), see [examples/](examples/README.md).
 
+### Register in OpenCode
+
+OpenCode runs on the host, so it points at the bound localhost port (not the
+container name). Add an `mcp` entry to `~/.config/opencode/opencode.jsonc`:
+
+```jsonc
+{
+  "mcp": {
+    "image-gen": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8000/mcp",
+      "oauth": false
+    }
+  }
+}
+```
+
+After restarting OpenCode, the `generate_image` / `list_images` tools are
+available to any agent (verify with `/mcp`).
+
 ## GPU memory strategy (lazy load + idle unload)
 
 The service does **not** hold its ~18 GB of weights permanently on the GPU:
