@@ -357,7 +357,7 @@ def generate_image(
         )
         if true_cfg > 1.0:
             kwargs["true_cfg_scale"] = true_cfg
-            kwargs["negative_prompt"] = "blurry, low quality, watermark, deformed"
+            kwargs["negative_prompt"] = "blurry, low quality, watermark, deformed,misspelled text, garbled letters, unreadable font, overlapping characters"
         else:
             kwargs["true_cfg_scale"] = 1.0
         try:
