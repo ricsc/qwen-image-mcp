@@ -41,6 +41,11 @@ services:
       #   qwen-image-2512-Q6_K.gguf    18.0 GB
       #   qwen-image-2512-Q8_0.gguf    22.4 GB  (nahezu verlustfrei, ~27 GB VRAM resident)
       - GGUF_FILENAME=qwen-image-2512-Q5_K_M.gguf
+      # Lightning-Distillations-LoRA (lightx2v/Qwen-Image-2512-Lightning).
+      # Die Step-Zahl wird automatisch aus dem Dateinamen abgeleitet:
+      #   Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors   8 Steps, ~20 s/Render (Default)
+      #   Qwen-Image-2512-Lightning-4steps-V1.0-bf16.safetensors   4 Steps, ~11 s/Render
+      - LORA_WEIGHT_NAME=Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors
     volumes:
       - ./data:/data          # HF model cache (~16 GB after first download)
       - ./images:/srv/images-qwen

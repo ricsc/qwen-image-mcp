@@ -62,7 +62,8 @@ Allowed range is 512–1664 px; the server rounds values down to multiples of 16
 }
 ```
 
-Explicit `steps`/`cfg` override the LoRA defaults (8 / 1.0) and use the model's
+Explicit `steps`/`cfg` override the LoRA defaults (4 or 8 / 1.0, depending on the
+loaded Lightning variant) and use the model's
 full sampling schedule — slower, but often noticeably more faithful to the prompt.
 
 ## Setting up the connection in Open WebUI

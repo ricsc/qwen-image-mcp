@@ -37,8 +37,10 @@ Environment:
                         (default: qwen-image-2512-Q5_K_M.gguf)
     PIPELINE_SHELL_ID   Repo supplying VAE/text-encoder/tokenizer/scheduler
                         (default: unsloth/Qwen-Image-2512-unsloth-bnb-4bit)
-    LORA_ID             Lightning distillation LoRA repo (default: lightx2v 8-step)
-    LORA_WEIGHT_NAME    Adapter filename inside LORA_ID
+    LORA_ID             Lightning distillation LoRA repo (default: lightx2v)
+    LORA_WEIGHT_NAME    Adapter filename inside LORA_ID (default: 8steps; the
+                        4steps variant from the same repo works out of the box)
+    LORA_STEPS          Override the auto-detected Lightning step count
     IDLE_UNLOAD_AFTER   Seconds of inactivity before the model is unloaded
 """
 
@@ -48,6 +50,7 @@ import io
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -90,7 +93,16 @@ LORA_WEIGHT_NAME = os.environ.get(
 IDLE_UNLOAD_AFTER = float(os.environ.get("IDLE_UNLOAD_AFTER", "300"))
 
 # Defaults for the two operating modes (auto-selected at load time).
-LORA_STEPS, LORA_CFG = 8, 1.0      # Lightning-distilled: few steps, no CFG
+# The Lightning step count follows the distillation recipe of the loaded LoRA
+# variant (the weight filename carries it, e.g. "…4steps…" / "…8steps…"),
+# so switching LORA_WEIGHT_NAME stays self-consistent; LORA_STEPS overrides.
+def _lora_steps_default(weight_name: str) -> int:
+    m = re.search(r"(\d+)\s*steps?", weight_name, re.IGNORECASE)
+    return int(m.group(1)) if m else 8
+
+_LORA_STEPS_ENV = os.environ.get("LORA_STEPS", "").strip()
+LORA_STEPS = int(_LORA_STEPS_ENV) if _LORA_STEPS_ENV else _lora_steps_default(LORA_WEIGHT_NAME)
+LORA_CFG = 1.0                          # Lightning-distilled: few steps, no CFG
 PLAIN_STEPS, PLAIN_CFG = 50, 4.0   # undistilled fallback: more steps + true-CFG
 
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -387,7 +399,8 @@ def generate_image(
         prompt: Image description. Describe layout, style and any exact text to include.
         width: Output width in px (512-1664, multiples of 16; default 1664 = 16:9 with 928).
         height: Output height in px (512-1664, multiples of 16; default 928).
-        steps: Sampling steps. Default: auto (8 with Lightning LoRA, 50 without).
+        steps: Sampling steps. Default: auto (LoRA recipe: 4 or 8 depending on
+            the loaded Lightning variant, 50 without).
         cfg: True-CFG scale. Default: auto (1.0 with LoRA, 4.0 without).
         seed: Optional RNG seed for reproducibility.
 

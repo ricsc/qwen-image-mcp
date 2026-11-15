@@ -15,7 +15,7 @@ Built for Open WebUI: register it as an MCP server and the LLM gets a
 | torch | 2.14.1 (cu130) |
 | diffusers / transformers | 0.41.0 / 5.20.2 |
 | Model | `unsloth/Qwen-Image-2512-GGUF` (Q5_K_M, ~15.4 GB transformer) + VAE/text-encoder shell from `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` (bnb-4bit text encoder, ~23 GB resident total) |
-| LoRA | `lightx2v/Qwen-Image-2512-Lightning` (8 steps, cfg 1.0) |
+| LoRA | `lightx2v/Qwen-Image-2512-Lightning` (8-step by default, 4-step variant available, cfg 1.0) |
 
 ## Quick start
 
@@ -82,7 +82,7 @@ The service does **not** hold its ~23 GB of weights permanently on the GPU:
 | `HF_HOME` | `/data/hf-cache` | HuggingFace cache (mounted at `./data`) |
 | `GGUF_REPO` / `GGUF_FILENAME` | `unsloth/Qwen-Image-2512-GGUF` / `qwen-image-2512-Q5_K_M.gguf` | GGUF transformer variant (downloaded into the HF cache on first use; the filename may also be an existing local path). All `qwen-image-2512-*.gguf` files of the same model work — e.g. `Q2_K` (7.7 GB) up to `Q8_0` (22.4 GB); Q5_K_M is the default |
 | `PIPELINE_SHELL_ID` | `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` | Repo supplying VAE/text-encoder/tokenizer/scheduler |
-| `LORA_ID` / `LORA_WEIGHT_NAME` | lightx2v Lightning 8-step | Distillation LoRA (auto-fallback to 50 steps/cfg 4.0 if missing) |
+| `LORA_ID` / `LORA_WEIGHT_NAME` | lightx2v Lightning 8-step | Distillation LoRA (auto-fallback to 50 steps/cfg 4.0 if missing). The step count follows the weight filename (`…4steps…` → 4); `LORA_STEPS` overrides it |
 | `IDLE_UNLOAD_AFTER` | `300` | Seconds of inactivity before GPU release |
 
 ## Endpoints
