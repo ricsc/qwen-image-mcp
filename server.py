@@ -60,6 +60,17 @@ from PIL import Image
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("qwen-image")
 
+# The MCP SDK (<= 1.30) logs a benign ClosedResourceError at ERROR level when a
+# client disconnects and the session is torn down while the standalone SSE
+# writer is between dequeues (upstream later releases swallow it silently).
+# Drop just that one message so normal open-webui disconnects don't look like
+# failures; everything else from the SDK still shows up.
+class _SseTeardownNoiseFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.getMessage() != "Error in standalone SSE writer"
+
+logging.getLogger("mcp.server.streamable_http").addFilter(_SseTeardownNoiseFilter())
+
 PORT = int(os.environ.get("PORT", "8000"))
 IMAGE_DIR = Path(os.environ.get("IMAGE_DIR", "/srv/images-qwen"))
 BASE_URL = os.environ.get("IMAGE_BASE_URL", "").rstrip("/")
