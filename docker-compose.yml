@@ -34,7 +34,7 @@ services:
       # Die Step-Zahl wird automatisch aus dem Dateinamen abgeleitet:
       #   Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors   8 Steps, ~20 s/Render (Default)
       #   Qwen-Image-2512-Lightning-4steps-V1.0-bf16.safetensors   4 Steps, ~11 s/Render
-      - LORA_WEIGHT_NAME=Qwen-Image-2512-Lightning-4steps-V1.0-bf16.safetensors
+      - LORA_WEIGHT_NAME=Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors
     volumes:
       - ./data:/data          # HF model cache (~19 GB after first download)
       - ./images:/srv/images-qwen
