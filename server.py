@@ -35,6 +35,12 @@ Environment:
     LORA_WEIGHT_NAME    Adapter filename inside LORA_ID (default: 8steps; the
                         4steps variant from the same repo works out of the box)
     LORA_STEPS          Override the auto-detected Lightning step count
+    LORA_SHIFT          Flow-match sigma shift for the LoRA path (default 3.0;
+                        12-13 for a more detail-focused test, see note in code)
+    LORA_CFG            CFG scale for the LoRA path (default 1.0 = no CFG;
+                        Lightning was distilled with cfg 1.0 — higher values
+                        deviate from the distillation recipe, test before
+                        adopting)
     IDLE_UNLOAD_AFTER   Seconds of inactivity before the model is unloaded
 """
 
@@ -98,7 +104,16 @@ def _lora_steps_default(weight_name: str) -> int:
 
 _LORA_STEPS_ENV = os.environ.get("LORA_STEPS", "").strip()
 LORA_STEPS = int(_LORA_STEPS_ENV) if _LORA_STEPS_ENV else _lora_steps_default(LORA_WEIGHT_NAME)
-LORA_CFG = 1.0                          # Lightning-distilled: few steps, no CFG
+_LORA_CFG_ENV = os.environ.get("LORA_CFG", "").strip()
+LORA_CFG = float(_LORA_CFG_ENV) if _LORA_CFG_ENV else 1.0   # Lightning-distilled: few steps, no CFG
+# Flow-match sigma shift for the LoRA path (linear, applied by diffusers).
+# 3.0 closely tracks LightX2V's distillation schedule (their reference uses the
+# repo's dynamic mu ≈ exp 2.2 + terminal stretch, which lands within a few
+# percent of linear shift 3.0 at 1664x928). Higher values push denoising into
+# the final steps (more detail, further from the distillation recipe); lower
+# values are softer. Raise to 12-13 only to test — unsloth's note targets
+# their 40-step non-distilled ComfyUI workflow, not the 8-step LoRA.
+LORA_SHIFT = float(os.environ.get("LORA_SHIFT", "3.0"))
 PLAIN_STEPS, PLAIN_CFG = 50, 4.0   # undistilled fallback: more steps + true-CFG
 
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -168,14 +183,19 @@ def _load_pipeline():
         logger.warning("Lightning LoRA unavailable, falling back to %d steps: %s", PLAIN_STEPS, exc)
 
     if lora_ok:
-        # Lightning was distilled with a constant shift=3 noise schedule (LightX2V
-        # reference: base_shift=max_shift=log(3), exponential shifting). With
-        # use_dynamic_shifting=False + shift=3.0 diffusers applies exactly that
-        # schedule for every resolution. The undistilled fallback path keeps the
-        # model's default dynamic-shift scheduler instead.
+        # Lightning was distilled against the model repo's flow-match schedule
+        # (dynamic mu ≈ exp 2.2 at 1664x928 + terminal stretch to 0.02, per
+        # LightX2V's reference implementation). diffusers' non-dynamic path
+        # applies a constant *linear* shift for every resolution; shift=3.0
+        # reproduces that schedule within a few percent per step, so it stays
+        # the default. LORA_SHIFT is an escape hatch to deviate (e.g. 12-13
+        # pushes most denoising into the final steps — see unsloth's note for
+        # their 40-step non-distilled workflow). The undistilled fallback
+        # path keeps the model's default dynamic-shift scheduler instead.
         pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
-            pipe.scheduler.config, shift=3.0, use_dynamic_shifting=False
+            pipe.scheduler.config, shift=LORA_SHIFT, use_dynamic_shifting=False
         )
+        logger.info("LoRA scheduler: linear shift %.1f (default 3.0), cfg %.1f (default 1.0)", LORA_SHIFT, LORA_CFG)
 
     return pipe, lora_ok
 

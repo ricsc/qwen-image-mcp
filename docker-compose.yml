@@ -18,28 +18,38 @@ services:
     networks:
       - openwebui_default
     environment:
-      # Muss aus Sicht des MCP-Clients erreichbar sein:
-      #   open-webui (im Docker-Netz)         -> http://qwen-image:8000 (Containername)
-      #   reine Host-Nutzung (OpenCode/Browser) -> http://127.0.0.1:8000
+      # Must be reachable from the MCP client's perspective:
+      #   open-webui (in the Docker network)     -> http://qwen-image:8000 (container name)
+      #   host-only usage (OpenCode/browser)     -> http://127.0.0.1:8000
       - IMAGE_BASE_URL=http://qwen-image:8000
       - IMAGE_DIR=/srv/images-qwen
-      # HuggingFace-Modell-Cache persistent halten (sonst ~19 GB Download bei jedem Start)
+      # Keep the HuggingFace model cache persistent (otherwise ~19 GB download on every start)
       - HF_HOME=/data/hf-cache
-      # Verhindert VRAM-Fragmentierung (von PyTorch empfohlen bei knapper Belegung)
+      # Prevents VRAM fragmentation (recommended by PyTorch when memory is tight)
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      # Lazy Load: Modell wird erst beim ersten generate_image geladen (~15-30 s),
-      # danach nach IDLE_UNLOAD_AFTER Sekunden Inaktivität wieder von der GPU entladen.
+      # Lazy loading: the model is loaded on the first generate_image (~15-30 s),
+      # then unloaded from the GPU after IDLE_UNLOAD_AFTER seconds of inactivity.
       - IDLE_UNLOAD_AFTER=300
-      # Lightning-Distillations-LoRA (lightx2v/Qwen-Image-2512-Lightning).
-      # Die Step-Zahl wird automatisch aus dem Dateinamen abgeleitet:
-      #   Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors   8 Steps, ~20 s/Render (Default)
-      #   Qwen-Image-2512-Lightning-4steps-V1.0-bf16.safetensors   4 Steps, ~11 s/Render
+      # Lightning distillation LoRA (lightx2v/Qwen-Image-2512-Lightning).
+      # The step count is derived automatically from the filename:
+      #   Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors   8 steps, ~20 s/render (default)
+      #   Qwen-Image-2512-Lightning-4steps-V1.0-bf16.safetensors   4 steps, ~11 s/render
       - LORA_WEIGHT_NAME=Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors
+      # Flow-match shift of the LoRA path (default 3.0 = Lightning distillation schedule).
+      # Raise to 12-13 for blurry/weak outputs (unsloth's hint, aimed at their
+      # 40-step workflow; for the 8-step LoRA it's a testing lever only).
+      # LORA_STEPS: step count override (default: derived from the LoRA filename).
+      # LORA_CFG: CFG scale of the LoRA path (default 1.0 = no CFG, as distilled;
+      #   higher values deviate from the distillation recipe — test first).
+      # Changes only take effect after:  docker compose up -d
+      # - LORA_SHIFT=12
+      # - LORA_STEPS=8
+      # - LORA_CFG=2.0
     volumes:
       - ./data:/data          # HF model cache (~19 GB after first download)
       - ./images:/srv/images-qwen
     healthcheck:
-      # Lazy Load: Service startet sofort (Modell erst bei Bedarf) -> /health liefert 200 (idle)
+      # Lazy loading: the service starts immediately (model on demand) -> /health returns 200 (idle)
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s

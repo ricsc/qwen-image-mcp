@@ -82,6 +82,8 @@ The service does **not** hold its ~18 GB of weights permanently on the GPU:
 | `MODEL_ID` | `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` | Base model repo |
 | `PIPELINE_SHELL_ID` | `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` | Repo supplying VAE/text-encoder/tokenizer/scheduler |
 | `LORA_ID` / `LORA_WEIGHT_NAME` | lightx2v Lightning 8-step | Distillation LoRA (auto-fallback to 50 steps/cfg 4.0 if missing). The step count follows the weight filename (`…4steps…` → 4); `LORA_STEPS` overrides it |
+| `LORA_SHIFT` | `3.0` | Flow-match sigma shift on the LoRA path. 3.0 tracks the Lightning distillation schedule; 12–13 (unsloth's "detail fix" for their 40-step workflow) pushes denoising into the final steps — test before adopting |
+| `LORA_CFG` | `1.0` | CFG scale on the LoRA path. Lightning was distilled with cfg 1.0 — higher values deviate from the distillation recipe, test before adopting |
 | `IDLE_UNLOAD_AFTER` | `300` | Seconds of inactivity before GPU release |
 
 ## Endpoints
