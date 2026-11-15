@@ -1,6 +1,6 @@
 # Standalone Qwen-Image MCP sidecar (no z-image-studio dependency).
 #
-#   docker compose up -d          # pull from GHCR + start (first run: ~19 GB model download on first generation)
+#   docker compose up -d          # pull from GHCR + start (first run: ~15.4 GB GGUF download on first generation)
 #   curl http://127.0.0.1:8000/health
 #
 # open-webui (shared network openwebui_default):
@@ -18,7 +18,9 @@ services:
     networks:
       - openwebui_default
     environment:
-      # Muss aus Sicht des MCP-Clients (open-webui) erreichbar sein -> Containername
+      # Muss aus Sicht des MCP-Clients erreichbar sein:
+      #   open-webui (im Docker-Netz)         -> http://qwen-image:8000 (Containername)
+      #   reine Host-Nutzung (OpenCode/Browser) -> http://127.0.0.1:8000
       - IMAGE_BASE_URL=http://qwen-image:8000
       - IMAGE_DIR=/srv/images-qwen
       # HuggingFace-Modell-Cache persistent halten (sonst ~19 GB Download bei jedem Start)
@@ -28,8 +30,19 @@ services:
       # Lazy Load: Modell wird erst beim ersten generate_image geladen (~15-30 s),
       # danach nach IDLE_UNLOAD_AFTER Sekunden Inaktivität wieder von der GPU entladen.
       - IDLE_UNLOAD_AFTER=300
+      # GGUF-Transformer-Variante (unsloth/Qwen-Image-2512-GGUF). Wird beim ersten
+      # Bedarf in ./data/hf-cache heruntergeladen (dann persistiert). Ein existierender
+      # lokaler Pfad wird bevorzugt. Alle Varianten = gleiches Modell, andere Präzision:
+      #   qwen-image-2512-Q2_K.gguf     7.7 GB  (stärkste Kompression, sichtbarer Qualitätsverlust)
+      #   qwen-image-2512-Q3_K_M.gguf   9.0 GB
+      #   qwen-image-2512-Q4_K_S.gguf  12.3 GB
+      #   qwen-image-2512-Q4_K_M.gguf  13.3 GB
+      #   qwen-image-2512-Q5_K_M.gguf  15.4 GB  <- Default: bester Preis/Leistungs-Faktor
+      #   qwen-image-2512-Q6_K.gguf    18.0 GB
+      #   qwen-image-2512-Q8_0.gguf    22.4 GB  (nahezu verlustfrei, ~27 GB VRAM resident)
+      - GGUF_FILENAME=qwen-image-2512-Q5_K_M.gguf
     volumes:
-      - ./data:/data          # HF model cache (~19 GB after first download)
+      - ./data:/data          # HF model cache (~16 GB after first download)
       - ./images:/srv/images-qwen
     healthcheck:
       # Lazy Load: Service startet sofort (Modell erst bei Bedarf) -> /health liefert 200 (idle)

@@ -6,7 +6,7 @@ Chosen for its significantly better in-image text rendering (multilingual,
 incl. German) and because there is no external safety filter rejecting
 legitimate prompts (e.g. network diagrams for presentations).
 
-Memory strategy — this service does NOT keep its ~18 GB of weights permanently
+Memory strategy — this service does NOT keep its ~23 GB of weights permanently
 on the GPU, so it can coexist with other GPU workloads:
 
   * Lazy load: the pipeline is loaded on the first generate_image call only.
@@ -14,10 +14,11 @@ on the GPU, so it can coexist with other GPU workloads:
     pipeline is released again (del + gc + torch.cuda.empty_cache), returning
     the VRAM to the other processes.
 
-bitsandbytes 4-bit weights are deliberately kept fully on the GPU: diffusers'
-enable_model_cpu_offload()/enable_sequential_cpu_offload() are incompatible
-with bnb-quantized modules on this host (observed: ~11 GB unexpected RSS
-growth and a silent host-RAM OOM kill).
+The GGUF-quantized transformer (Q5_K_M, ~15.4 GB) is deliberately kept fully
+on the GPU, together with the bnb-4bit text encoder (~7 GB) of the shell
+repo: diffusers' enable_model_cpu_offload()/enable_sequential_cpu_offload()
+are not used here — they proved unstable with quantized modules on this host
+(observed: ~11 GB unexpected RSS growth and a silent host-RAM OOM kill).
 
 Endpoints:
     POST /mcp                  MCP Streamable HTTP transport (JSON-RPC)
@@ -30,7 +31,12 @@ Environment:
     IMAGE_DIR           Output directory (default: /srv/images-qwen)
     IMAGE_BASE_URL      Absolute base URL used for ResourceLinks, must be
                         reachable from the MCP client, e.g. http://qwen-image:8000
-    MODEL_ID            HuggingFace model (default: unsloth bnb-4bit build)
+    GGUF_REPO           HuggingFace repo holding the GGUF transformer
+                        (default: unsloth/Qwen-Image-2512-GGUF)
+    GGUF_FILENAME       GGUF file inside GGUF_REPO, or an existing local path
+                        (default: qwen-image-2512-Q5_K_M.gguf)
+    PIPELINE_SHELL_ID   Repo supplying VAE/text-encoder/tokenizer/scheduler
+                        (default: unsloth/Qwen-Image-2512-unsloth-bnb-4bit)
     LORA_ID             Lightning distillation LoRA repo (default: lightx2v 8-step)
     LORA_WEIGHT_NAME    Adapter filename inside LORA_ID
     IDLE_UNLOAD_AFTER   Seconds of inactivity before the model is unloaded
@@ -62,10 +68,19 @@ IMAGE_DIR = Path(os.environ.get("IMAGE_DIR", "/srv/images-qwen"))
 BASE_URL = os.environ.get("IMAGE_BASE_URL", "").rstrip("/")
 THUMB_MAX_WIDTH = 512  # px, width cap for the inline thumbnail sent to the LLM
 
-MODEL_ID = os.environ.get(
-    "MODEL_ID",
-    "unsloth/Qwen-Image-2512-unsloth-bnb-4bit",  # 4-bit weights, ~18 GB resident
+# Transformer: GGUF single file (unsloth dynamic quantization, Q5_K_M ≈
+# 15.4 GB). diffusers 0.41 loads GGUF only through the model class
+# (from_single_file), never through the pipeline class — so the remaining
+# components (VAE, text encoder, tokenizer, scheduler) are taken from the
+# "pipeline shell" repo below, which is fully present in the HF cache.
+GGUF_REPO = os.environ.get("GGUF_REPO", "unsloth/Qwen-Image-2512-GGUF")
+GGUF_FILENAME = os.environ.get("GGUF_FILENAME", "qwen-image-2512-Q5_K_M.gguf")
+PIPELINE_SHELL_ID = os.environ.get(
+    "PIPELINE_SHELL_ID", "unsloth/Qwen-Image-2512-unsloth-bnb-4bit"
 )
+# Display name reported by /health and in image metadata.
+MODEL_ID = f"{GGUF_REPO} ({GGUF_FILENAME})"
+_CONFIG_DIR = Path(__file__).resolve().parent / "configs"
 LORA_ID = os.environ.get("LORA_ID", "lightx2v/Qwen-Image-2512-Lightning")
 LORA_WEIGHT_NAME = os.environ.get(
     "LORA_WEIGHT_NAME", "Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors"
@@ -113,21 +128,56 @@ _RETRY_COOLDOWN_S = 30.0       # don't hammer a failing load in a tight loop
 # ---------------------------------------------------------------------------
 def _load_pipeline():
     """
-    Load the pipeline (4-bit weights, bf16 compute) fully onto the GPU and
-    attach the Lightning LoRA. Returns (pipe, lora_loaded).
+    Load the pipeline (GGUF Q5_K_M transformer, bnb-4bit text encoder from
+    the shell repo, bf16 VAE; bf16 compute) fully onto the GPU and attach
+    the Lightning LoRA. Returns (pipe, lora_loaded).
+
+    The GGUF transformer is loaded standalone via
+    QwenImageTransformer2DModel.from_single_file() — diffusers 0.41 does not
+    support GGUF loading through pipeline classes — and injected into
+    QwenImagePipeline.from_pretrained(..., transformer=...). The shell repo's
+    ~30 GB of bf16 transformer shards are therefore never downloaded or
+    loaded; only VAE (bf16), the bnb-4bit text encoder, tokenizer and
+    scheduler come from it.
 
     NOTE: enable_model_cpu_offload()/enable_sequential_cpu_offload() are
-    deliberately NOT used — they are incompatible with bitsandbytes 4-bit
-    modules on this host (silent host-RAM OOM kill, ~11 GB unexpected RSS).
+    deliberately NOT used (observed: silent host-RAM OOM kill with
+    quantized modules on this host).
     """
     import torch
-    from diffusers import DiffusionPipeline, FlowMatchEulerDiscreteScheduler
+    from diffusers import (
+        GGUFQuantizationConfig,
+        FlowMatchEulerDiscreteScheduler,
+        QwenImagePipeline,
+        QwenImageTransformer2DModel,
+    )
+    from huggingface_hub import hf_hub_download
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA device not available inside this container")
 
-    logger.info("Loading %s (bf16 + 4-bit weights) ...", MODEL_ID)
-    pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=torch.bfloat16)
+    logger.info("Loading %s (GGUF, bf16 compute) ...", MODEL_ID)
+
+    # 1) Transformer from the GGUF file: an existing local path wins,
+    #    otherwise download into the persistent HF cache on first use.
+    gguf_file = (
+        GGUF_FILENAME
+        if os.path.isfile(GGUF_FILENAME)
+        else hf_hub_download(repo_id=GGUF_REPO, filename=GGUF_FILENAME)
+    )
+    transformer = QwenImageTransformer2DModel.from_single_file(
+        gguf_file,
+        # Clean transformer config without the shell repo's bnb
+        # quantization_config (shipped in this repo, works offline).
+        config=str(_CONFIG_DIR / "qwen-image-2512" / "transformer"),
+        quantization_config=GGUFQuantizationConfig(compute_dtype=torch.bfloat16),
+        dtype=torch.bfloat16,
+    )
+
+    # 2) Pipeline shell: VAE, text encoder, tokenizer, scheduler.
+    pipe = QwenImagePipeline.from_pretrained(
+        PIPELINE_SHELL_ID, transformer=transformer, torch_dtype=torch.bfloat16
+    )
     pipe = pipe.to("cuda")
 
     lora_ok = True

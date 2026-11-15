@@ -3,7 +3,7 @@
 # Base is plain CPython: the pinned torch wheels bundle the complete CUDA 13
 # runtime as nvidia-* pip packages, so no cuda base image is needed — only a
 # recent NVIDIA driver on the host. All versions below are the exact matrix
-# verified to load and run Qwen-Image-2512 (bnb-4bit + Lightning LoRA).
+# verified to load and run Qwen-Image-2512 (GGUF Q5_K_M + Lightning LoRA).
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
@@ -21,9 +21,10 @@ RUN pip install --no-cache-dir torch==2.14.1 --index-url https://download.pytorc
 # Everything else: the exact verified version matrix
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
-    && python -c "import bitsandbytes, diffusers, transformers, accelerate, peft, fastapi, uvicorn, mcp, PIL; print('deps ok')"
+    && python -c "import bitsandbytes, gguf, diffusers, transformers, accelerate, peft, fastapi, uvicorn, mcp, PIL; print('deps ok')"
 
 COPY server.py ./
+COPY configs ./configs
 RUN mkdir -p /srv/images-qwen
 
 EXPOSE 8000
