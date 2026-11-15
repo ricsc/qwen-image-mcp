@@ -94,7 +94,7 @@ right arguments, e.g.:
 
 | Chat message | Resulting tool call |
 |---|---|
-| `Draw a cat at a desk drinking coffee` | default 1344×768, LoRA sampling |
+| `Draw a cat at a desk drinking coffee` | default 1664×928 (16:9), LoRA sampling |
 | `Draw a cat at a desk drinking coffee, square 800x800` | `width: 800, height: 800` |
 | `Draw a cat at a desk drinking coffee with steps=20 cfg=4.0` | `steps: 20, cfg: 4.0` (high quality) |
 

@@ -80,7 +80,7 @@ The service does **not** hold its ~18 GB of weights permanently on the GPU:
 | `IMAGE_BASE_URL` | — | Base URL for image links, must be reachable from the MCP client (`http://qwen-image:8000`) |
 | `HF_HOME` | `/data/hf-cache` | HuggingFace cache (mounted at `./data`) |
 | `MODEL_ID` | `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` | Base model repo |
-| `LORA_ID` / `LORA_WEIGHT_NAME` | lightx2v Lightning 8-step | Distillation LoRA (auto-fallback to 20 steps/cfg 4.0 if missing) |
+| `LORA_ID` / `LORA_WEIGHT_NAME` | lightx2v Lightning 8-step | Distillation LoRA (auto-fallback to 50 steps/cfg 4.0 if missing) |
 | `IDLE_UNLOAD_AFTER` | `300` | Seconds of inactivity before GPU release |
 
 ## Endpoints

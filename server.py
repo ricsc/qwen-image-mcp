@@ -75,8 +75,8 @@ LORA_WEIGHT_NAME = os.environ.get(
 IDLE_UNLOAD_AFTER = float(os.environ.get("IDLE_UNLOAD_AFTER", "300"))
 
 # Defaults for the two operating modes (auto-selected at load time).
-LORA_STEPS, LORA_CFG = 10, 1.0      # Lightning-distilled: few steps, no CFG
-PLAIN_STEPS, PLAIN_CFG = 20, 5.0   # undistilled fallback: more steps + true-CFG
+LORA_STEPS, LORA_CFG = 8, 1.0      # Lightning-distilled: few steps, no CFG
+PLAIN_STEPS, PLAIN_CFG = 50, 4.0   # undistilled fallback: more steps + true-CFG
 
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -121,7 +121,7 @@ def _load_pipeline():
     modules on this host (silent host-RAM OOM kill, ~11 GB unexpected RSS).
     """
     import torch
-    from diffusers import DiffusionPipeline
+    from diffusers import DiffusionPipeline, FlowMatchEulerDiscreteScheduler
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA device not available inside this container")
@@ -143,6 +143,16 @@ def _load_pipeline():
     except Exception as exc:  # keep working undistilled if the adapter fails
         lora_ok = False
         logger.warning("Lightning LoRA unavailable, falling back to %d steps: %s", PLAIN_STEPS, exc)
+
+    if lora_ok:
+        # Lightning was distilled with a constant shift=3 noise schedule (LightX2V
+        # reference: base_shift=max_shift=log(3), exponential shifting). With
+        # use_dynamic_shifting=False + shift=3.0 diffusers applies exactly that
+        # schedule for every resolution. The undistilled fallback path keeps the
+        # model's default dynamic-shift scheduler instead.
+        pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+            pipe.scheduler.config, shift=3.0, use_dynamic_shifting=False
+        )
 
     return pipe, lora_ok
 
@@ -327,8 +337,8 @@ def generate_image(
         prompt: Image description. Describe layout, style and any exact text to include.
         width: Output width in px (512-1664, multiples of 16; default 1664 = 16:9 with 928).
         height: Output height in px (512-1664, multiples of 16; default 928).
-        steps: Sampling steps. Default: auto (10 with Lightning LoRA, 20 without).
-        cfg: True-CFG scale. Default: auto (1.0 with LoRA, 5.0 without).
+        steps: Sampling steps. Default: auto (8 with Lightning LoRA, 50 without).
+        cfg: True-CFG scale. Default: auto (1.0 with LoRA, 4.0 without).
         seed: Optional RNG seed for reproducibility.
 
     Returns:
@@ -342,8 +352,8 @@ def generate_image(
     with _gen_lock:
         pipe = _ensure_loaded()  # lazy load on first call
         # Sampling params AFTER loading: LORA_LOADED is only known once the
-        # pipeline exists (lazy load), and Lightning's 10-step/cfg-1.0 setting
-        # must not be mixed with the plain 20-step/cfg-5.0 fallback.
+        # pipeline exists (lazy load), and Lightning's 8-step/cfg-1.0 setting
+        # must not be mixed with the plain 50-step/cfg-4.0 fallback.
         n_steps = steps if steps is not None else (LORA_STEPS if LORA_LOADED else PLAIN_STEPS)
         true_cfg = cfg if cfg is not None else (LORA_CFG if LORA_LOADED else PLAIN_CFG)
 
@@ -359,9 +369,9 @@ def generate_image(
             num_inference_steps=n_steps,
             generator=generator,
         )
-        kwargs["negative_prompt"] = "blurry, low quality, watermark, deformed, misspelled words, garbled letters, unreadable font, overlapping characters"
         if true_cfg > 1.0:
             kwargs["true_cfg_scale"] = true_cfg
+            kwargs["negative_prompt"] = "blurry, low quality, watermark, deformed, misspelled words, garbled letters, unreadable font, overlapping characters"
         else:
             kwargs["true_cfg_scale"] = 1.0
         try:
