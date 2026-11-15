@@ -75,8 +75,8 @@ LORA_WEIGHT_NAME = os.environ.get(
 IDLE_UNLOAD_AFTER = float(os.environ.get("IDLE_UNLOAD_AFTER", "300"))
 
 # Defaults for the two operating modes (auto-selected at load time).
-LORA_STEPS, LORA_CFG = 8, 1.0      # Lightning-distilled: few steps, no CFG
-PLAIN_STEPS, PLAIN_CFG = 20, 4.0   # undistilled fallback: more steps + true-CFG
+LORA_STEPS, LORA_CFG = 10, 1.0      # Lightning-distilled: few steps, no CFG
+PLAIN_STEPS, PLAIN_CFG = 20, 5.0   # undistilled fallback: more steps + true-CFG
 
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -268,9 +268,13 @@ def _make_thumbnail(png_bytes: bytes) -> ImageContent:
 
 
 def _clamp_dim(value: int) -> int:
-    """Clamp a resolution dimension to a sane range, rounded down to /32."""
-    value = max(512, min(int(value), 1536))
-    return (value // 32) * 32
+    """Clamp a resolution dimension to a sane range, rounded down to /16.
+
+    Qwen-Image needs multiples of 16 (VAE 8x downsampling x 2x2 patch),
+    so official native sizes like 1328 or 1104 pass through unchanged.
+    """
+    value = max(512, min(int(value), 1664))
+    return (value // 16) * 16
 
 
 def _save_image(png_bytes: bytes) -> tuple[str, Path]:
@@ -304,8 +308,8 @@ def _vram_allocated_mb() -> int | None:
 @mcp.tool()
 def generate_image(
     prompt: str,
-    width: int = 1344,
-    height: int = 768,
+    width: int = 1664,
+    height: int = 928,
     steps: int | None = None,
     cfg: float | None = None,
     seed: int | None = None,
@@ -321,10 +325,10 @@ def generate_image(
 
     Args:
         prompt: Image description. Describe layout, style and any exact text to include.
-        width: Output width in px (512-1536, multiples of 32; default 1344 = 16:9 with 768).
-        height: Output height in px (512-1536, multiples of 32; default 768).
-        steps: Sampling steps. Default: auto (8 with Lightning LoRA, 20 without).
-        cfg: True-CFG scale. Default: auto (1.0 with LoRA, 4.0 without).
+        width: Output width in px (512-1664, multiples of 16; default 1664 = 16:9 with 928).
+        height: Output height in px (512-1664, multiples of 16; default 928).
+        steps: Sampling steps. Default: auto (10 with Lightning LoRA, 20 without).
+        cfg: True-CFG scale. Default: auto (1.0 with LoRA, 5.0 without).
         seed: Optional RNG seed for reproducibility.
 
     Returns:
@@ -338,8 +342,8 @@ def generate_image(
     with _gen_lock:
         pipe = _ensure_loaded()  # lazy load on first call
         # Sampling params AFTER loading: LORA_LOADED is only known once the
-        # pipeline exists (lazy load), and Lightning's 8-step/cfg-1.0 setting
-        # must not be mixed with the plain 20-step/cfg-4.0 fallback.
+        # pipeline exists (lazy load), and Lightning's 10-step/cfg-1.0 setting
+        # must not be mixed with the plain 20-step/cfg-5.0 fallback.
         n_steps = steps if steps is not None else (LORA_STEPS if LORA_LOADED else PLAIN_STEPS)
         true_cfg = cfg if cfg is not None else (LORA_CFG if LORA_LOADED else PLAIN_CFG)
 
@@ -355,9 +359,9 @@ def generate_image(
             num_inference_steps=n_steps,
             generator=generator,
         )
+        kwargs["negative_prompt"] = "blurry, low quality, watermark, deformed, misspelled words, garbled letters, unreadable font, overlapping characters"
         if true_cfg > 1.0:
             kwargs["true_cfg_scale"] = true_cfg
-            kwargs["negative_prompt"] = "blurry, low quality, watermark, deformed,misspelled text, garbled letters, unreadable font, overlapping characters"
         else:
             kwargs["true_cfg_scale"] = 1.0
         try:

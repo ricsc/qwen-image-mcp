@@ -47,7 +47,7 @@ defaults kick in automatically.
 }
 ```
 
-Allowed range is 512–1536 px; the server rounds values down to multiples of 32.
+Allowed range is 512–1664 px; the server rounds values down to multiples of 16.
 
 ### 3. Higher-quality sampling (`steps` / `cfg`)
 
