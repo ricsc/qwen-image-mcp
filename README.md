@@ -14,7 +14,7 @@ Built for Open WebUI: register it as an MCP server and the LLM gets a
 | Base image | `python:3.11-slim-bookworm` (CUDA 13 runtime ships inside the torch wheels) |
 | torch | 2.14.1 (cu130) |
 | diffusers / transformers | 0.41.0 / 5.20.2 |
-| Model | `unsloth/Qwen-Image-2512-GGUF` (Q5_K_M, ~15.4 GB transformer) + VAE/text-encoder shell from `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` (bnb-4bit text encoder, ~23 GB resident total) |
+| Model | `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` (~18 GB resident, 4-bit weights) |
 | LoRA | `lightx2v/Qwen-Image-2512-Lightning` (8-step by default, 4-step variant available, cfg 1.0) |
 
 ## Quick start
@@ -24,9 +24,8 @@ docker compose up -d --build
 curl http://127.0.0.1:8000/health   # {"status": "idle", ...}
 ```
 
-First `generate_image` call downloads the GGUF transformer (~15.4 GB) into
-`./data/hf-cache` if not present yet, loads it (~15–30 s), then generates
-(~10 s). Subsequent calls are fast.
+First `generate_image` call downloads the model (~19 GB) into `./data/hf-cache` if not
+present yet, loads it (~15–30 s), then generates (~10 s). Subsequent calls are fast.
 
 ### Register in Open WebUI
 
@@ -65,7 +64,7 @@ available to any agent (verify with `/mcp`).
 
 ## GPU memory strategy (lazy load + idle unload)
 
-The service does **not** hold its ~23 GB of weights permanently on the GPU:
+The service does **not** hold its ~18 GB of weights permanently on the GPU:
 
 - **Lazy load** — starts with zero VRAM footprint; loads on first generation.
 - **Idle unload** — after `IDLE_UNLOAD_AFTER` seconds without a generation the
@@ -80,7 +79,7 @@ The service does **not** hold its ~23 GB of weights permanently on the GPU:
 | `IMAGE_DIR` | `/srv/images-qwen` | Output directory (mounted at `./images`) |
 | `IMAGE_BASE_URL` | — | Base URL for image links, must be reachable from the MCP client (`http://qwen-image:8000`) |
 | `HF_HOME` | `/data/hf-cache` | HuggingFace cache (mounted at `./data`) |
-| `GGUF_REPO` / `GGUF_FILENAME` | `unsloth/Qwen-Image-2512-GGUF` / `qwen-image-2512-Q5_K_M.gguf` | GGUF transformer variant (downloaded into the HF cache on first use; the filename may also be an existing local path). All `qwen-image-2512-*.gguf` files of the same model work — e.g. `Q2_K` (7.7 GB) up to `Q8_0` (22.4 GB); Q5_K_M is the default |
+| `MODEL_ID` | `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` | Base model repo |
 | `PIPELINE_SHELL_ID` | `unsloth/Qwen-Image-2512-unsloth-bnb-4bit` | Repo supplying VAE/text-encoder/tokenizer/scheduler |
 | `LORA_ID` / `LORA_WEIGHT_NAME` | lightx2v Lightning 8-step | Distillation LoRA (auto-fallback to 50 steps/cfg 4.0 if missing). The step count follows the weight filename (`…4steps…` → 4); `LORA_STEPS` overrides it |
 | `IDLE_UNLOAD_AFTER` | `300` | Seconds of inactivity before GPU release |
@@ -94,11 +93,8 @@ The service does **not** hold its ~23 GB of weights permanently on the GPU:
 
 ## Notes
 
-- The GGUF-quantized transformer is kept fully on the GPU on purpose:
-  `enable_model_cpu_offload()` is not used (observed: silent host-RAM OOM
-  kill with quantized modules on this host).
-- The GGUF file is loaded via `QwenImageTransformer2DModel.from_single_file()`
-  and injected into the pipeline (diffusers 0.41 has no GGUF pipeline loading);
-  the shell repo's bf16 transformer shards are never downloaded.
+- bitsandbytes 4-bit weights are kept fully on the GPU on purpose:
+  `enable_model_cpu_offload()` is incompatible with bnb modules on this host
+  (silent host-RAM OOM kill).
 - Generation is serialized (one at a time); the idle-unload reaper waits for an
   in-flight generation to finish.
